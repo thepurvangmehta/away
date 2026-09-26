@@ -30,7 +30,8 @@ Needs Python 3 (already on macOS). Keeping the machine awake works on macOS; on 
 
 ## Use
 
-1. Give Claude the goal, then type **`/away:on`** (or just say "I'm going to sleep").
+1. Type **`/away:on`** followed by the job, for example `/away:on fix the images on the Work page`.
+   Or give Claude the job first, then say "I'm going to sleep". Away covers only that chat, and switches off when the job is done.
 2. In the morning, type **`/away:off`** (or say "I'm in"). You get what got done, what was refused, the answers it picked for you, and the Needs you list.
 
 Keep the laptop plugged in with the lid open.
@@ -38,7 +39,7 @@ Keep the laptop plugged in with the lid open.
 ## Menu bar moon (Mac, optional)
 
 A moon in your menu bar: outline when Away is off, filled when it's on.
-Click it to turn Away on or off, see tonight's count, and read the "Needs you" list.
+Click it to turn Away on for every open chat, or off, see tonight's count, and read the "Needs you" list.
 A number next to the moon means new things are waiting for you.
 
 ```
