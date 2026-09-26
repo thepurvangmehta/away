@@ -35,6 +35,18 @@ Needs Python 3 (already on macOS). Keeping the machine awake works on macOS; on 
 
 Keep the laptop plugged in with the lid open.
 
+## Menu bar moon (Mac, optional)
+
+A moon in your menu bar: outline when Away is off, filled when it's on.
+Click it to turn Away on or off, see tonight's count, and read the "Needs you" list.
+A number next to the moon means new things are waiting for you.
+
+```
+git clone https://github.com/thepurvangmehta/away && ./away/menubar/build.sh
+```
+
+Needs Xcode Command Line Tools (`xcode-select --install`). Turn on "Open at login" from its menu.
+
 ## Your own refuse list (optional)
 
 Create `~/.claude/away.json`:
