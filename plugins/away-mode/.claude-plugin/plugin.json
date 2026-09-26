@@ -1,9 +1,0 @@
-{
-  "name": "away-mode",
-  "version": "0.1.0",
-  "description": "Keeps Claude Code working while you sleep: approves normal work, skips risky things into a 'Needs you' list, answers its own questions, and hands you a morning report.",
-  "author": { "name": "Purvang Mehta", "url": "https://thepurvangmehta.com" },
-  "homepage": "https://github.com/thepurvangmehta/away-mode",
-  "license": "MIT",
-  "keywords": ["unattended", "overnight", "permissions", "hooks", "autonomy"]
-}

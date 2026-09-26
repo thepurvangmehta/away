@@ -1,4 +1,4 @@
-# Away mode for Claude Code
+# Away for Claude Code
 
 Claude Code is great until you step away.
 You come back and it's been waiting on one "Allow?" for three hours.
@@ -22,22 +22,22 @@ When away mode is off, nothing changes. Your own deny rules always win.
 In Claude Code:
 
 ```
-/plugin marketplace add thepurvangmehta/away-mode
-/plugin install away-mode@away-mode
+/plugin marketplace add thepurvangmehta/away
+/plugin install away@away
 ```
 
 Needs Python 3 (already on macOS). Keeping the machine awake works on macOS; on other systems, keep it awake yourself.
 
 ## Use
 
-1. Give Claude the goal, then say **"I'm going to sleep"**.
-2. In the morning, say **"I'm in"**. You get what got done, what was refused, the answers it picked for you, and the Needs you list.
+1. Give Claude the goal, then type **`/away:on`** (or just say "I'm going to sleep").
+2. In the morning, type **`/away:off`** (or say "I'm in"). You get what got done, what was refused, the answers it picked for you, and the Needs you list.
 
 Keep the laptop plugged in with the lid open.
 
 ## Your own refuse list (optional)
 
-Create `~/.claude/away-mode.json`:
+Create `~/.claude/away.json`:
 
 ```json
 {

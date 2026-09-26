@@ -1,11 +1,14 @@
 {
-  "name": "away-mode",
-  "description": "Away mode for Claude Code, by Purvang Mehta",
-  "owner": { "name": "Purvang Mehta", "url": "https://thepurvangmehta.com" },
+  "name": "away",
+  "description": "Away for Claude Code, by Purvang Mehta",
+  "owner": {
+    "name": "Purvang Mehta",
+    "url": "https://thepurvangmehta.com"
+  },
   "plugins": [
     {
-      "name": "away-mode",
-      "source": "./plugins/away-mode",
+      "name": "away",
+      "source": "./plugins/away",
       "description": "Keeps Claude Code working while you sleep, and hands you a morning report."
     }
   ]

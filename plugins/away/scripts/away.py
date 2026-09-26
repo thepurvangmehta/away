@@ -13,16 +13,16 @@ With no arguments it runs as the Claude Code hook (see hooks/hooks.json):
 When away mode is off it does nothing, so everything behaves as usual.
 Your deny rules in settings.json still win over this hook.
 
-Optional ~/.claude/away-mode.json:
+Optional ~/.claude/away.json:
   {"name": "Sam", "refuse_commands": [regex...], "refuse_paths": [regex...], "refuse_tools": [regex...]}
 """
 import json, os, re, signal, subprocess, sys, time
 
 HOME = os.path.expanduser("~")
-FLAG = f"{HOME}/.claude/away-mode.on"
-LOG = f"{HOME}/.claude/away-mode.log"
-PIDFILE = f"{HOME}/.claude/away-mode.caffeinate"
-CONFIG = f"{HOME}/.claude/away-mode.json"
+FLAG = f"{HOME}/.claude/away.on"
+LOG = f"{HOME}/.claude/away.log"
+PIDFILE = f"{HOME}/.claude/away.caffeinate"
+CONFIG = f"{HOME}/.claude/away.json"
 MAX_NUDGES = 30  # ponytail: per-session cap so an impossible goal can't loop all night
 
 # Bash commands never auto-approved. Claude is told to skip them and list them for the morning.
@@ -131,7 +131,7 @@ def hook():
         if "AWAY: DONE" in last_reply(data):
             log("FINISHED", data.get("session_id", ""))
             return
-        count_file = f"{HOME}/.claude/away-mode.nudges.{data.get('session_id', 'x')}"
+        count_file = f"{HOME}/.claude/away.nudges.{data.get('session_id', 'x')}"
         n = int(open(count_file).read()) + 1 if os.path.exists(count_file) else 1
         open(count_file, "w").write(str(n))
         if n > MAX_NUDGES:
@@ -166,7 +166,7 @@ def cli(cmd):
         except (OSError, ValueError):
             pass
         for f in os.listdir(f"{HOME}/.claude"):
-            if f.startswith("away-mode.nudges."):
+            if f.startswith("away.nudges."):
                 os.remove(f"{HOME}/.claude/{f}")
         log("--- OFF", "")
         print("Away mode OFF. Pop-ups ask you again.\n")
