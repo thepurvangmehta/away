@@ -1,6 +1,6 @@
 {
   "name": "away",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Keeps Claude Code working while you sleep: approves normal work, skips risky things into a 'Needs you' list, answers its own questions, and hands you a morning report.",
   "author": {
     "name": "Purvang Mehta",

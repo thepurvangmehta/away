@@ -98,10 +98,31 @@ def last_reply(data):
     return ""
 
 
+def owner():
+    """Session that turned Away on ("" = all chats, e.g. from the menu bar moon)."""
+    lines = open(FLAG).read().splitlines()
+    return lines[1].strip() if len(lines) > 1 else ""
+
+
+def stop_away():
+    if os.path.exists(FLAG):
+        os.remove(FLAG)
+    try:
+        os.kill(int(open(PIDFILE).read()), signal.SIGTERM)
+        os.remove(PIDFILE)
+    except (OSError, ValueError):
+        pass
+    for f in os.listdir(f"{HOME}/.claude"):
+        if f.startswith("away.nudges."):
+            os.remove(f"{HOME}/.claude/{f}")
+
+
 def hook():
     if not os.path.exists(FLAG):
         return  # away mode off: normal behaviour
     data = json.load(sys.stdin)
+    if owner() and data.get("session_id") != owner():
+        return  # Away belongs to another chat; this one behaves as usual
     cfg = config()
     who = cfg.get("name", "The user")
     event, tool, inp = data.get("hook_event_name"), data.get("tool_name", ""), data.get("tool_input") or {}
@@ -130,6 +151,9 @@ def hook():
     elif event == "Stop":
         if "AWAY: DONE" in last_reply(data):
             log("FINISHED", data.get("session_id", ""))
+            if owner():  # that chat's job is done: switch off so nothing lingers
+                stop_away()
+                log("--- OFF", "(job done)")
             return
         count_file = f"{HOME}/.claude/away.nudges.{data.get('session_id', 'x')}"
         n = int(open(count_file).read()) + 1 if os.path.exists(count_file) else 1
@@ -148,31 +172,29 @@ def hook():
 
 def cli(cmd):
     if cmd == "on":
-        open(FLAG, "w").write(time.strftime("%d %b %H:%M"))
+        # Run from a chat: Away covers only that chat. Run from the moon or Terminal: all chats.
+        session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+        open(FLAG, "w").write(time.strftime("%d %b %H:%M") + "\n" + session)
         try:  # macOS only; elsewhere the user keeps the machine awake themselves
-            p = subprocess.Popen(["caffeinate", "-dimsu"], start_new_session=True)
+            p = subprocess.Popen(["caffeinate", "-dimsu"], start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
             open(PIDFILE, "w").write(str(p.pid))
             awake = " The Mac stays awake (keep it plugged in)."
         except OSError:
             awake = " Keep the computer from sleeping."
-        log("--- ON", "")
-        print("Away mode ON." + awake)
+        log("--- ON", "this chat" if session else "all chats")
+        print(f"Away mode ON for {'this chat' if session else 'all chats'}." + awake)
     elif cmd == "off":
-        if os.path.exists(FLAG):
-            os.remove(FLAG)
-        try:
-            os.kill(int(open(PIDFILE).read()), signal.SIGTERM)
-            os.remove(PIDFILE)
-        except (OSError, ValueError):
-            pass
-        for f in os.listdir(f"{HOME}/.claude"):
-            if f.startswith("away.nudges."):
-                os.remove(f"{HOME}/.claude/{f}")
+        stop_away()
         log("--- OFF", "")
         print("Away mode OFF. Pop-ups ask you again.\n")
         cli("report")
     elif cmd == "status":
-        print(f"Away mode ON since {open(FLAG).read()}" if os.path.exists(FLAG) else "Away mode OFF")
+        if os.path.exists(FLAG):
+            since = open(FLAG).read().splitlines()[0]
+            print(f"Away mode ON since {since}, for {'one chat' if owner() else 'all chats'}")
+        else:
+            print("Away mode OFF")
     elif cmd == "report":
         lines = open(LOG).read().splitlines() if os.path.exists(LOG) else []
         run = lines[max((i for i, l in enumerate(lines) if "--- ON" in l), default=0):]

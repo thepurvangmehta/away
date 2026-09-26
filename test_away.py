@@ -31,4 +31,17 @@ q = {"questions": [{"question": "Which?", "header": "x", "multiSelect": False, "
 assert run("PreToolUse", "AskUserQuestion", q)["hookSpecificOutput"]["updatedInput"]["answers"] == {"Which?": "A (Recommended)"}
 assert run("Stop", last_assistant_message="Shall I continue?")["decision"] == "block"
 assert run("Stop", last_assistant_message="Summary\nAWAY: DONE") is None
+# Away turned on from one chat covers only that chat, and switches off when that chat's job is done
+open(f"{home}/.claude/away.on", "w").write("27 Sep 23:00\nchat-A")
+assert run("PermissionRequest", "Bash", {"command": "npm test"}) is None, "other chats must behave as usual"
+d = {"hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": {"command": "npm test"}, "session_id": "chat-A"}
+out = subprocess.run(["python3", S], input=json.dumps(d), capture_output=True, text=True, env=env).stdout
+assert json.loads(out)["hookSpecificOutput"]["decision"]["behavior"] == "allow"
+d = {"hook_event_name": "Stop", "session_id": "chat-A", "last_assistant_message": "Done.\nAWAY: DONE"}
+subprocess.run(["python3", S], input=json.dumps(d), capture_output=True, text=True, env=env)
+assert not os.path.exists(f"{home}/.claude/away.on"), "must switch off after its chat is done"
+# the command run inside a chat records that chat
+out = subprocess.run(["python3", S, "on"], capture_output=True, text=True, env={**env, "CLAUDE_CODE_SESSION_ID": "chat-B"}).stdout
+assert "this chat" in out and open(f"{home}/.claude/away.on").read().splitlines()[1] == "chat-B"
+subprocess.run(["python3", S, "off"], capture_output=True, env=env)
 print("all away checks passed")

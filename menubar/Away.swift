@@ -74,9 +74,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
 
         var since = ""
-        if isOn, let s = try? String(contentsOfFile: flagPath, encoding: .utf8) { since = " since \(s)" }
+        if isOn, let s = try? String(contentsOfFile: flagPath, encoding: .utf8) {
+            let parts = s.split(separator: "\n", omittingEmptySubsequences: false)
+            let oneChat = parts.count > 1 && !parts[1].trimmingCharacters(in: .whitespaces).isEmpty
+            since = " since \(parts[0]), \(oneChat ? "for one chat" : "for all chats")"
+        }
         menu.addItem(disabled(isOn ? "Away is on\(since)" : "Away is off"))
-        menu.addItem(action(isOn ? "Turn off (I'm in)" : "Turn on (I'm going to sleep)", #selector(toggle)))
+        menu.addItem(action(isOn ? "Turn off (I'm in)" : "Turn on for all chats", #selector(toggle)))
         menu.addItem(.separator())
 
         if run.approved + run.answered + run.refused.count > 0 {
