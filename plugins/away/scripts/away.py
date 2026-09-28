@@ -7,9 +7,11 @@
   away.py report    what it approved, refused and answered
 
 With no arguments it runs as the Claude Code hook (see hooks/hooks.json):
-  PermissionRequest              -> allow normal work, refuse risky things ("Needs you")
+  PreToolUse (every tool)        -> refuse risky things ("Needs you") before they run, in every mode,
+                                    including Bypass, where no permission prompt ever appears
   PreToolUse on AskUserQuestion  -> blocked; Claude goes with the recommended option and notes it
   PreToolUse on browser pages    -> blocked; the app's site pop-up can't be answered unattended
+  PermissionRequest              -> allow the normal work that would otherwise wait for a click
   Stop                           -> send Claude back to work until it says AWAY: DONE
 When away mode is off it does nothing, so everything behaves as usual.
 Your deny rules in settings.json still win over this hook.
@@ -160,7 +162,16 @@ def hook():
              "'allow this site?' pop-up, which nobody can answer tonight. Don't use the browser. "
              "Read the page with WebFetch instead if that's enough, otherwise put it under 'Needs you' and move on.")
 
-    elif event == "PermissionRequest":
+    elif event == "PreToolUse":
+        # Checked before every action, so the risky list holds in Bypass mode too, where nothing ever prompts.
+        why = risk(tool, inp, cfg)
+        if why:
+            log("REFUSED", f"({why}) {short(tool, inp)}")
+            deny("PreToolUse", f"Away mode: {who} is away and this looks like {why}, so it was refused. "
+                 "Don't retry or work around it. Skip it, carry on with everything else, and "
+                 "list it under 'Needs you' in your final summary.")
+
+    elif event == "PermissionRequest":  # risky ones never get here: PreToolUse already refused them
         why = risk(tool, inp, cfg)
         if why:
             log("REFUSED", f"({why}) {short(tool, inp)}")

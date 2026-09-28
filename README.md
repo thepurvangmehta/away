@@ -44,7 +44,7 @@ Use them. Away works alongside them and covers what they leave open.
 | Claude asking you a question | Waits for you | Waits for you | Waits for you | **Goes with its recommended option, tells you later** |
 | Browser "allow this site?" and flagged page actions | Sometimes asks | Sometimes asks | Depends on your mode | **Keeps Claude out of the browser, notes it for you** |
 | Claude stops early | Stops | Stops | Keeps going | **Keeps going** |
-| Risky things (delete, deploy, push to main, send) | Blocked or allowed by a model | **Allowed** | No change | **Skipped and listed for you** |
+| Risky things (delete, deploy, push to main, send) | Blocked or allowed by a model | **Run without asking** | No change | **Skipped and listed for you, in every mode, Bypass included** |
 | What happened overnight | Scroll the chat | Scroll the chat | Scroll the chat | **One morning list** |
 
 Based on Claude Code's own docs as of September 2026: no permission mode auto-approves questions to you.
@@ -52,12 +52,13 @@ Based on Claude Code's own docs as of September 2026: no permission mode auto-ap
 ## How it works
 
 1. `/away:on <job>` switches Away on **for that chat only**. Your other chats behave as normal.
-2. Every pop-up Claude would show you is answered in under a second:
+2. Before every action, Away checks it against the risky list. A match is refused and added to **Needs you**,
+   whatever permission mode you're in, Bypass included.
+3. Every pop-up Claude would still show you is answered in under a second:
    - normal work is approved
-   - risky things are refused and added to **Needs you**
    - questions, site approvals and plan approvals are turned into notes instead of waits
-3. If Claude stops before the job is done, Away sends it back to work (up to 30 times).
-4. When the job is done, Away switches itself off. `/away:off` gives you the report.
+4. If Claude stops before the job is done, Away sends it back to work (up to 30 times).
+5. When the job is done, Away switches itself off. `/away:off` gives you the report.
 
 It's a small set of Claude Code hooks and three commands. No server, no account, nothing leaves your machine.
 

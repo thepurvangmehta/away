@@ -30,6 +30,14 @@ assert perm("terraform apply") == "deny" and perm(tool="mcp__stripe__list") == "
 q = {"questions": [{"question": "Which?", "header": "x", "multiSelect": False, "options": [{"label": "A (Recommended)"}, {"label": "B"}]}]}
 r = run("PreToolUse", "AskUserQuestion", q)["hookSpecificOutput"]  # blocked: the app would still show the card
 assert r["permissionDecision"] == "deny" and "A (Recommended)" in r["permissionDecisionReason"]
+# Bypass mode never shows a permission prompt, so risky actions must be refused before they run
+pre = lambda t, i: run("PreToolUse", t, i)
+assert pre("Bash", {"command": "rm -rf build"})["hookSpecificOutput"]["permissionDecision"] == "deny"
+assert pre("Bash", {"command": "vercel --prod"})["hookSpecificOutput"]["permissionDecision"] == "deny"
+assert pre("Write", {"file_path": "/p/.env"})["hookSpecificOutput"]["permissionDecision"] == "deny"
+assert pre("mcp__resend__send-email", {})["hookSpecificOutput"]["permissionDecision"] == "deny"
+assert pre("Bash", {"command": "npm test"}) is None, "normal work must pass straight through"
+assert pre("Edit", {"file_path": "/p/app.tsx"}) is None
 assert run("PreToolUse", "ExitPlanMode", {})["hookSpecificOutput"]["permissionDecision"] == "deny"
 for t in ["mcp__Claude_Browser__navigate", "mcp__remote-devices__Claude_Browser__navigate", "mcp__claude-in-chrome__navigate"]:
     assert run("PreToolUse", t, {"url": "https://new-site.example"})["hookSpecificOutput"]["permissionDecision"] == "deny", t
