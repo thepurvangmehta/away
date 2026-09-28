@@ -1,13 +1,14 @@
 """Run: python3 test_away.py  (uses a throwaway HOME, touches nothing real)"""
-import json, os, subprocess, tempfile
+import json, os, subprocess, sys, tempfile
+PY = sys.executable
 
 S = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugins/away/scripts/away.py")
 home = tempfile.mkdtemp(); os.makedirs(f"{home}/.claude")
-env = {**os.environ, "HOME": home}
+env = {**os.environ, "HOME": home, "USERPROFILE": home}  # USERPROFILE: Windows
 
 def run(event, tool="", inp=None, **extra):
     data = {"hook_event_name": event, "tool_name": tool, "tool_input": inp or {}, "session_id": "t", **extra}
-    out = subprocess.run(["python3", S], input=json.dumps(data), capture_output=True, text=True, env=env).stdout
+    out = subprocess.run([PY, S], input=json.dumps(data), capture_output=True, text=True, env=env).stdout
     return json.loads(out) if out.strip() else None
 
 def perm(cmd=None, tool="Bash", **inp):
@@ -50,15 +51,15 @@ assert run("Stop", last_assistant_message="Summary\nAWAY: DONE") is None
 open(f"{home}/.claude/away.on", "w").write("27 Sep 23:00\nchat-A")
 assert run("PermissionRequest", "Bash", {"command": "npm test"}) is None, "other chats must behave as usual"
 d = {"hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": {"command": "npm test"}, "session_id": "chat-A"}
-out = subprocess.run(["python3", S], input=json.dumps(d), capture_output=True, text=True, env=env).stdout
+out = subprocess.run([PY, S], input=json.dumps(d), capture_output=True, text=True, env=env).stdout
 assert json.loads(out)["hookSpecificOutput"]["decision"]["behavior"] == "allow"
 d = {"hook_event_name": "Stop", "session_id": "chat-A", "last_assistant_message": "Done.\nAWAY: DONE"}
-subprocess.run(["python3", S], input=json.dumps(d), capture_output=True, text=True, env=env)
+subprocess.run([PY, S], input=json.dumps(d), capture_output=True, text=True, env=env)
 assert not os.path.exists(f"{home}/.claude/away.on"), "must switch off after its chat is done"
 # the command run inside a chat records that chat
-out = subprocess.run(["python3", S, "on"], capture_output=True, text=True, env={**env, "CLAUDE_CODE_SESSION_ID": "chat-B"}).stdout
+out = subprocess.run([PY, S, "on"], capture_output=True, text=True, env={**env, "CLAUDE_CODE_SESSION_ID": "chat-B"}).stdout
 assert "this chat" in out and open(f"{home}/.claude/away.on").read().splitlines()[1] == "chat-B"
-subprocess.run(["python3", S, "off"], capture_output=True, env=env)
+subprocess.run([PY, S, "off"], capture_output=True, env=env)
 # Levels (Away on for all chats again)
 open(f"{home}/.claude/away.on", "w").write("x")
 cfgfile = f"{home}/.claude/away.json"
@@ -91,7 +92,7 @@ assert at("balanced", "PowerShell", B("Get-ChildItem")) == "allow"
 assert at("balanced", "Write", {"file_path": "C:\\proj\\.env"}) == "deny"
 # settings from the command line
 os.remove(cfgfile)
-cli = lambda *a: subprocess.run(["python3", S, *a], capture_output=True, text=True, env=env)
+cli = lambda *a: subprocess.run([PY, S, *a], capture_output=True, text=True, env=env)
 assert cli("set", "level", "reckless").returncode != 0, "unknown level must be rejected"
 assert cli("set", "level", "careful").returncode == 0 and json.load(open(cfgfile))["level"] == "careful"
 assert cli("add", "refuse_commands", r"\bterraform\s+apply").returncode == 0
@@ -99,4 +100,75 @@ assert cli("add", "refuse_commands", "(broken").returncode != 0, "broken pattern
 out = cli("config").stdout
 assert "careful" in out and "terraform" in out
 os.remove(f"{home}/.claude/away.on")
+
+# Audit, 28 Sep: every case below slipped through (or misfired) before v0.8.0
+open(f"{home}/.claude/away.on", "w").write("x")
+repo = tempfile.mkdtemp()
+subprocess.run(["git", "init", "-q", "-b", "main", repo], check=True)
+side = tempfile.mkdtemp()
+subprocess.run(["git", "init", "-q", "-b", "feature", side], check=True)
+# 1. Claude can't switch Away off or loosen it
+for c in ["rm ~/.claude/away.on", "python3 /x/scripts/away.py off", "python3 away.py set level hands-off",
+          "claude plugin uninstall away@away", "echo '{}' > ~/.claude/settings.json"]:
+    assert at("balanced", "Bash", B(c)) == "deny", c
+assert at("balanced", "Edit", {"file_path": f"{home}/.claude/settings.json"}) == "deny"
+assert at("balanced", "Write", {"file_path": f"{home}/.claude/away.json"}) == "deny"
+# 2. plain "git push" while on main
+assert at("balanced", "Bash", B("git push"), cwd=repo) == "deny"
+assert at("balanced", "Bash", B("git push -u origin HEAD"), cwd=repo) == "deny"
+assert at("balanced", "Bash", B(f"git -C {repo} push")) == "deny"
+assert at("balanced", "Bash", B("git push"), cwd=side) == "allow", "a feature branch is fine"
+assert at("balanced", "Bash", B("git push origin HEAD:feature"), cwd=repo) == "allow"
+# 3. sending data out through a web request (reading stays allowed, local is fine)
+assert at("balanced", "Bash", B("curl -X POST -d 'text=hi' https://hooks.slack.com/services/x")) == "deny"
+assert at("balanced", "Bash", B("curl -F file=@a.txt https://upload.example.com")) == "deny"
+assert at("balanced", "PowerShell", B("Invoke-RestMethod -Uri https://x.io -Method Post")) == "deny"
+assert at("balanced", "Bash", B("curl -s https://example.com")) == "allow"
+assert at("balanced", "Bash", B("curl -X POST -d x=1 http://localhost:3000/api")) == "allow"
+# 4 and 5. deletes that dodged the rules
+assert at("hands-off", "Bash", B("cd /tmp && rm -rf important")) == "deny"
+assert at("balanced", "Bash", B("find . -name '*.log' -delete")) == "deny"
+assert at("hands-off", "Bash", B("find /var/log -delete")) == "deny"
+assert at("hands-off", "Bash", B("find ./tmp -delete")) == "allow"
+# 8. false alarms
+assert at("balanced", "mcp__github__list_comments", {}) == "allow"
+assert at("balanced", "mcp__figma__generate_diagram", {}) == "allow"
+assert at("balanced", "mcp__github__add_comment", {}) == "deny"
+assert at("balanced", "Bash", B("node -e 'console.log(process.env.NODE_ENV)'")) == "allow"
+assert at("balanced", "Bash", B("grep -rn 'git push origin main' docs/")) == "allow"
+assert at("balanced", "Bash", B("git commit -m 'stop rm -rf in build script'")) == "allow"
+assert at("balanced", "Bash", B("echo 'x' > .env")) == "deny", "a real write to .env is still refused"
+os.remove(f"{home}/.claude/away.on")
+# 6. two overnight chats at once: the second doesn't kick out the first
+on = lambda sid: subprocess.run([PY, S, "on"], capture_output=True, text=True, env={**env, "CLAUDE_CODE_SESSION_ID": sid})
+on("chat-A"); on("chat-B")
+json.dump({"level": "balanced"}, open(cfgfile, "w"))
+for sid in ("chat-A", "chat-B"):
+    assert run("PreToolUse", "Bash", B("rm -rf /x"), session_id=sid, cwd="/p"), f"{sid} must stay protected"
+subprocess.run([PY, S], input=json.dumps({"hook_event_name": "Stop", "session_id": "chat-A",
+               "last_assistant_message": "done\nAWAY: DONE"}), capture_output=True, text=True, env=env)
+assert os.path.exists(f"{home}/.claude/away.on"), "chat B is still working, so Away stays on"
+assert run("PreToolUse", "Bash", B("rm -rf /x"), session_id="chat-B", cwd="/p")
+# 7. turning on twice leaves exactly one keep-awake, and "off" stops it
+pid1 = open(f"{home}/.claude/away.caffeinate").read() if os.path.exists(f"{home}/.claude/away.caffeinate") else None
+on("chat-C")
+pid2 = open(f"{home}/.claude/away.caffeinate").read() if os.path.exists(f"{home}/.claude/away.caffeinate") else None
+if pid1 and pid2:
+    assert pid1 != pid2
+    try:
+        os.kill(int(pid1), 0); raise AssertionError("old keep-awake must be stopped")
+    except OSError:
+        pass
+# 14. "AWAY: DONE" only counts as the last line
+assert run("Stop", last_assistant_message="I'll end with AWAY: DONE later.\nStill working.", session_id="chat-B")
+# you typing /away:off (or "I'm in") switches Away off before Claude reads it
+subprocess.run([PY, S], input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "I'm in",
+               "session_id": "chat-B"}), capture_output=True, text=True, env=env)
+assert not os.path.exists(f"{home}/.claude/away.on")
+# 11. keys typed into a command never reach the log
+open(f"{home}/.claude/away.on", "w").write("x")
+at("balanced", "Bash", B("curl -H 'Authorization: Bearer abcdefghijklmnop123' -d x=1 https://api.example.com"))
+assert "abcdefghijklmnop123" not in open(f"{home}/.claude/away.log").read()
+os.remove(f"{home}/.claude/away.on")
+subprocess.run([PY, S, "off"], capture_output=True, env=env)
 print("all away checks passed")

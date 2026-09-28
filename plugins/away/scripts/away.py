@@ -11,15 +11,19 @@
   away.py add refuse_commands "regex"   also refuse_paths, refuse_tools
 
 With no arguments it runs as the Claude Code hook (see hooks/hooks.json):
+  UserPromptSubmit               -> you typed /away:off or "I'm in": switch off before Claude reads it
   PreToolUse (every tool)        -> refuse risky things ("Needs you") before they run, in every mode,
                                     including Bypass, where no permission prompt ever appears
   PreToolUse on AskUserQuestion  -> blocked; Claude goes with the recommended option and notes it
   PreToolUse on browser pages    -> blocked; the app's site pop-up can't be answered unattended
   PreToolUse on ExitPlanMode     -> blocked; the plan goes on the Needs you list
   PermissionRequest              -> allow the normal work that would otherwise wait for a click
-  Stop                           -> send Claude back to work until it says AWAY: DONE
+  Stop                           -> send Claude back to work until its last line is AWAY: DONE
 When away mode is off it does nothing, so everything behaves as usual.
 Your deny rules in settings.json still win over this hook.
+
+It reads command TEXT: a seatbelt, not a sandbox. A program Claude writes and runs can still do things
+this can't see. Pair it with Claude Code's sandbox for real isolation.
 
 Settings live in ~/.claude/away.json:
   {"level": "balanced", "name": "Sam", "refuse_commands": [...], "refuse_paths": [...], "refuse_tools": [...]}
@@ -27,7 +31,7 @@ Settings live in ~/.claude/away.json:
 import json, os, re, shlex, signal, subprocess, sys, time
 
 HOME = os.path.expanduser("~")
-FLAG = f"{HOME}/.claude/away.on"
+FLAG = f"{HOME}/.claude/away.on"          # line 1: since; lines 2+: chats it covers (none = all chats)
 LOG = f"{HOME}/.claude/away.log"
 PIDFILE = f"{HOME}/.claude/away.caffeinate"
 CONFIG = f"{HOME}/.claude/away.json"
@@ -44,8 +48,10 @@ LEVELS = {
 
 G = r"\bgit\b[^|;&\n]*\s"  # "git" plus any options before the subcommand, e.g. "git -C some/folder push"
 
-# Refused at every level: can't be undone, or leaves the machine.
+# Refused at every level: can't be undone, leaves the machine, or switches Away itself off.
 ALWAYS = [
+    (r"\.claude[/\\](away\.|settings(\.local)?\.json)|\baway\.py[\"']?\s+(off|set|add)\b"
+     r"|\bclaude\s+plugins?\s+(uninstall|disable|remove)\b", "switching Away off or changing its rules"),
     (G + r"push\b[^|;&\n]*(\s-f\b|--force)", "force-pushing"),
     (G + r"push\b[^|;&\n]*\b(main|master)\b", "pushing to main"),
     (G + r"(reset\s+--hard|clean\s+-\w*f|branch\s+-D|filter-branch|filter-repo)", "throwing away git work"),
@@ -57,16 +63,23 @@ ALWAYS = [
     (r"\bsudo\b|\bshutdown\b|\breboot\b|\bdiskutil\b|\bcsrutil\b|\bdefaults\s+write\b", "changing the computer itself"),
     (r"\bFormat-Volume\b|\bSet-ExecutionPolicy\b|\breg(\.exe)?\s+(add|delete)\b|\bbcdedit\b|-Verb\s+RunAs"
      r"|\b(Stop|Restart)-Computer\b", "changing the computer itself"),
-    (r"\.env\b|keychain|\bsecurity\s+find-|\bcmdkey\b", "touching secrets"),
+    (r"(?<![\w.])\.env\b|keychain|\bsecurity\s+find-|\bcmdkey\b", "touching secrets"),
     (r"\b(curl|wget)\b.*\|\s*(ba|z)?sh\b", "running a script from the internet"),
     (r"\b(iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b.*\|\s*(iex|Invoke-Expression)\b"
      r"|\biex\s*\(\s*(iwr|irm|New-Object)", "running a script from the internet"),
     (r"\bsendmail\b|\bosascript\b|\bSend-MailMessage\b", "sending a message"),
 ]
+# Web requests that send data out (reading a page stays allowed). Local addresses are fine.
+SENDS_DATA = re.compile(
+    r"\b(curl|wget)\b[^|;&]*\s(-X\s*(POST|PUT|PATCH|DELETE)\b|-d\S*|--data\S*|-F\S*|--form\S*|-T\S*|--upload-file"
+    r"|--post-data\S*|--post-file\S*|--method[= ](POST|PUT|PATCH|DELETE)\b)"
+    r"|(?i:\b(Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^|;&]*-Method\s+(Post|Put|Patch|Delete)\b)")
+LOCAL = re.compile(r"(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])")
 # Balanced and careful: any recursive or forced delete, even inside the project.
 DELETES = [
     (r"\brm\s+(-\w*[rRf]|--recursive|--force)", "deleting files"),
     (r"\brmdir\b|\bshred\b|\bsrm\b", "deleting files"),
+    (r"\bfind\b[^|;&]*\s-delete\b|\bfind\b[^|;&]*-exec\s+rm\b", "deleting files"),
     (r"\bRemove-Item\b.*-(Recurse|Force)|\b(rd|del|erase)\s+/[sq]\b", "deleting files"),
 ]
 # Careful only.
@@ -77,14 +90,21 @@ CAREFUL = [
     (r"\b(psql|mysql|mongosh?|sqlite3|redis-cli)\b|\bprisma\s+(migrate|db)\b|\bdrizzle-kit\s+(push|migrate)\b"
      r"|\bsupabase\s+db\b", "changing a database"),
 ]
-# MCP / app tools whose name suggests an outward, paid or permanent action.
-RISKY_TOOL = re.compile(
-    r"send|delete|remove|publish|deploy|post|merge|purchase|pay|transfer|"
-    r"archive|share|invite|comment|reply|secret|generate_|upscale",
-    re.I,
-)
-RISKY_PATH = [r"(^|/)\.env", r"/\.ssh/", r"/\.git/", r"/\.aws/", r"\.pem$"]
+# MCP / app tools whose name suggests an outward, paid or permanent action...
+RISKY_TOOL = re.compile(r"send|delete|remove|publish|deploy|post|merge|purchase|pay|transfer|"
+                        r"archive|share|invite|comment|reply|secret", re.I)
+# ...unless the name says it only reads.
+READ_ONLY_TOOL = re.compile(r"^(get|list|read|search|fetch|query|describe|show|view|find|check|status|whoami)"
+                            r"([_\-]|$)", re.I)
+RISKY_PATH = [r"(^|/)\.env", r"/\.ssh/", r"/\.git/", r"/\.aws/", r"\.pem$",
+              r"/\.claude/(away\.|settings(\.local)?\.json$)"]
 DELETE_CMD = re.compile(r"(?:^|[;&|]\s*|\s)(rm|rmdir|Remove-Item|rd|del|erase)\s+([^;&|]*)")
+CHANGES_DIR = re.compile(r"(^|[;&|(]\s*|\s)(cd|pushd|Set-Location|sl|chdir)\s")
+# Commands that only read or print text: a risky word inside their quotes is just text.
+TEXT_ONLY = re.compile(r"^\s*(grep|rg|ag|ack|echo|printf|git\s+(log|grep|commit))\b")
+SECRET = re.compile(r"(sk-[A-Za-z0-9_\-]{12,}|gh[pous]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|xox[abpr]-[\w-]{10,}"
+                    r"|AKIA[0-9A-Z]{16}|(?i:bearer)\s+[\w.\-]{12,}|(?i:(password|passwd|token|secret|api[_-]?key))=\S+)")
+OFF_WORDS = re.compile(r"^\s*(/away:off\b|<command-name>/away:off|(i'?m|i am)\s+(in|back)\b|away\s+off\b)", re.I)
 
 
 def config():
@@ -101,7 +121,7 @@ def level(cfg):
 
 def log(kind, what):
     with open(LOG, "a") as f:
-        f.write(f"{time.strftime('%d %b %H:%M')}  {kind:<9} {what}\n")
+        f.write(f"{time.strftime('%d %b %H:%M')}  {kind:<9} {SECRET.sub('[hidden]', what)}\n")
 
 
 def inside(path, cwd):
@@ -114,39 +134,73 @@ def inside(path, cwd):
 
 
 def deletes_outside(cmd, cwd):
+    moved = bool(CHANGES_DIR.search(cmd))  # after a "cd", a relative path can point anywhere
+    targets = []
     for m in DELETE_CMD.finditer(cmd):
         try:
-            args = shlex.split(m.group(2), posix=True)
+            targets += [a for a in shlex.split(m.group(2), posix=True)
+                        if not a.startswith("-") and not re.fullmatch(r"/[a-zA-Z]", a)]  # /s /q flags
         except ValueError:
             return True
-        targets = [a for a in args if not a.startswith("-") and not re.fullmatch(r"/[a-zA-Z]", a)]  # /s /q flags
-        for t in targets:
-            # the home folder, the whole disk, or a $VARIABLE we can't see into always count as outside
-            if t in ("/", "~", "~/") or "$" in t or "%" in t or not inside(t, cwd):
-                return True
+    targets += [m.group(1) for m in re.finditer(r"\bfind\s+(\S+)[^|;&]*\s(-delete\b|-exec\s+rm\b)", cmd)]
+    for t in targets:
+        # the home folder, the whole disk, or a $VARIABLE we can't see into always count as outside
+        if moved or t in ("/", "~", "~/") or "$" in t or "%" in t or not inside(t, cwd):
+            return True
     return False
+
+
+def pushes_main(cmd, cwd):
+    """A plain "git push" (or "git push origin HEAD") pushes the current branch. Is that main?"""
+    m = re.search(r"\bgit\b([^|;&\n]*?)\spush\b([^|;&\n]*)", cmd)
+    if not m:
+        return False
+    try:
+        pos = [a for a in shlex.split(m.group(2)) if not a.startswith("-")]
+    except ValueError:
+        return True
+    if len(pos) > 1 and not any(r in ("HEAD", "@") for r in pos[1:]):
+        return False  # an explicit branch was named; the main/master rule above covers those
+    d = re.search(r"-C\s+(\S+)", m.group(1))
+    repo = os.path.expanduser(d.group(1).strip("'\"")) if d else (cwd or ".")
+    try:
+        branch = subprocess.run(["git", "-C", repo, "symbolic-ref", "--short", "HEAD"],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return True  # can't tell: be careful
+    return branch in ("main", "master")
 
 
 def risk(tool, inp, cfg, cwd=""):
     lv = level(cfg)
     if tool in SHELLS:
         cmd = inp.get("command", "")
+        text = cmd
+        if TEXT_ONLY.search(cmd) and not re.search(r"[;&|`]|\$\(|>", cmd):
+            text = re.sub(r"'[^']*'|\"[^\"]*\"", "''", cmd)  # quoted words of a read/print command are just text
         rules = ALWAYS + (DELETES if lv != "hands-off" else []) + (CAREFUL if lv == "careful" else [])
         rules += [(p, "on your own refuse list") for p in cfg.get("refuse_commands", [])]
-        why = next((why for pat, why in rules if re.search(pat, cmd, re.I if tool == "PowerShell" else 0)), None)
-        if not why and lv == "hands-off" and deletes_outside(cmd, cwd):
+        why = next((why for pat, why in rules if re.search(pat, text, re.I if tool == "PowerShell" else 0)), None)
+        if not why and SENDS_DATA.search(text) and not LOCAL.search(text):
+            why = "sending data to the internet"
+        if not why and lv != "careful" and pushes_main(text, cwd):
+            why = "pushing to main"
+        if not why and lv == "hands-off" and deletes_outside(text, cwd):
             why = "deleting files outside the project"
         return why
     path = (inp.get("file_path") or inp.get("notebook_path") or inp.get("path") or "").replace("\\", "/")
+    if path and re.search(RISKY_PATH[-1], path):
+        return "switching Away off or changing its rules"
     if path and any(re.search(p, path, re.I) for p in RISKY_PATH + cfg.get("refuse_paths", [])):
         return "touching secrets or private files"
     if lv == "careful" and tool in ("Write", "Edit", "NotebookEdit") and path and cwd and not inside(path, cwd):
         return "writing outside the project"
-    if tool.startswith("mcp__") or tool in ("Artifact", "ArtifactData", "SendMessage", "RemoteTrigger"):
-        if RISKY_TOOL.search(tool.split("__")[-1]) or inp.get("action") == "delete":
-            return "an outward, paid or permanent action"
     if any(re.search(p, tool, re.I) for p in cfg.get("refuse_tools", [])):
         return "on your own refuse list"
+    if tool.startswith("mcp__") or tool in ("Artifact", "ArtifactData", "SendMessage", "RemoteTrigger"):
+        name = tool.split("__")[-1]
+        if inp.get("action") == "delete" or (RISKY_TOOL.search(name) and not READ_ONLY_TOOL.search(name)):
+            return "an outward, paid or permanent action"
     return None
 
 
@@ -169,23 +223,50 @@ def last_reply(data):
     return ""
 
 
-def owner():
-    """Session that turned Away on ("" = all chats, e.g. from the menu bar moon)."""
-    lines = open(FLAG).read().splitlines()
-    return lines[1].strip() if len(lines) > 1 else ""
+def finished(reply):
+    lines = [l for l in reply.strip().splitlines() if l.strip()]
+    return bool(lines) and re.fullmatch(r"\W*AWAY: DONE\W*", lines[-1].strip()) is not None
+
+
+def chats():
+    """Chats Away covers; empty = all chats (turned on from the moon or Terminal)."""
+    return [l.strip() for l in open(FLAG).read().splitlines()[1:] if l.strip()]
+
+
+def covers(session):
+    c = chats()
+    return not c or session in c
+
+
+def stop_keep_awake():
+    try:
+        os.kill(int(open(PIDFILE).read()), signal.SIGTERM)
+    except (OSError, ValueError):
+        pass
+    try:
+        os.remove(PIDFILE)
+    except OSError:
+        pass
 
 
 def stop_away():
     if os.path.exists(FLAG):
         os.remove(FLAG)
-    try:
-        os.kill(int(open(PIDFILE).read()), signal.SIGTERM)
-        os.remove(PIDFILE)
-    except (OSError, ValueError):
-        pass
+    stop_keep_awake()
     for f in os.listdir(f"{HOME}/.claude"):
         if f.startswith("away.nudges."):
             os.remove(f"{HOME}/.claude/{f}")
+
+
+def release(session):
+    """This chat's job is done. Switch off completely only when no other chat still needs Away."""
+    since = open(FLAG).read().splitlines()[0]  # read before opening for writing, which empties the file
+    rest = [c for c in chats() if c != session]
+    if rest:
+        open(FLAG, "w").write("\n".join([since] + rest))
+    else:
+        stop_away()
+    return not rest
 
 
 BROWSER = re.compile(r"Claude_Browser__(navigate|preview_start|tabs_create)|claude-in-chrome__(navigate|tabs_create)")
@@ -206,11 +287,19 @@ def hook():
     if not os.path.exists(FLAG):
         return  # away mode off: normal behaviour
     data = json.load(sys.stdin)
-    if owner() and data.get("session_id") != owner():
-        return  # Away belongs to another chat; this one behaves as usual
+    session = data.get("session_id")
+    event, tool, inp = data.get("hook_event_name"), data.get("tool_name", ""), data.get("tool_input") or {}
+
+    if event == "UserPromptSubmit":
+        # Only a message YOU send can switch Away off from a chat; Claude's own attempts are refused below.
+        if OFF_WORDS.search(data.get("prompt", "")):
+            stop_away()
+            log("--- OFF", "(you, from a chat)")
+        return
+    if not covers(session):
+        return  # Away belongs to other chats; this one behaves as usual
     cfg = config()
     who = cfg.get("name", "The user")
-    event, tool, inp = data.get("hook_event_name"), data.get("tool_name", ""), data.get("tool_input") or {}
     cwd = data.get("cwd", "")
 
     if event == "PreToolUse" and tool == "AskUserQuestion":
@@ -254,42 +343,42 @@ def hook():
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}))
 
     elif event == "Stop":
-        if "AWAY: DONE" in last_reply(data):
-            log("FINISHED", data.get("session_id", ""))
-            if owner():  # that chat's job is done: switch off so nothing lingers
-                stop_away()
+        if finished(last_reply(data)):
+            log("FINISHED", session or "")
+            if chats() and release(session):  # that chat's job is done: switch off so nothing lingers
                 log("--- OFF", "(job done)")
             return
-        count_file = f"{HOME}/.claude/away.nudges.{data.get('session_id', 'x')}"
+        count_file = f"{HOME}/.claude/away.nudges.{session or 'x'}"
         n = int(open(count_file).read()) + 1 if os.path.exists(count_file) else 1
         open(count_file, "w").write(str(n))
         if n > MAX_NUDGES:
-            log("GAVE UP", f"stopped after {MAX_NUDGES} nudges, session {data.get('session_id', '')}")
+            log("GAVE UP", f"stopped after {MAX_NUDGES} nudges, session {session}")
             return
-        log("NUDGED", f"#{n} session {data.get('session_id', '')}")
+        log("NUDGED", f"#{n} session {session}")
         print(json.dumps({"decision": "block", "reason":
             f"Away mode is on: {who} is away and can't answer. Don't wait or ask anything. "
             "Keep working toward the goal you were given. Anything that truly needs them (a password, a sign-in, "
             "a payment, a refused action), skip and add to a 'Needs you' list. When the goal is fully "
             "done, or everything left is on that list, write your summary with the 'Needs you' list "
-            "and end with the exact line: AWAY: DONE"}))
+            "and make the very last line exactly: AWAY: DONE"}))
 
 
 def keep_awake():
-    """Start something that keeps the computer awake; return a sentence for the user."""
+    """Start something that keeps the computer awake (the screen may sleep); return a sentence for the user."""
+    stop_keep_awake()  # never leave an old one running
     quiet = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
     if sys.platform == "win32":
         p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "_stay_awake"],
                              creationflags=0x00000008 | 0x00000200, **quiet)  # detached, own process group
         what = " The PC stays awake (keep it plugged in)."
     else:
-        cmd = ["caffeinate", "-dimsu"] if sys.platform == "darwin" else \
+        cmd = ["caffeinate", "-ims"] if sys.platform == "darwin" else \
               ["systemd-inhibit", "--what=idle:sleep", "--why=Away mode", "sleep", "infinity"]
         try:
             p = subprocess.Popen(cmd, start_new_session=True, **quiet)
         except OSError:
             return " Keep the computer from sleeping."
-        what = " The Mac stays awake (keep it plugged in)." if sys.platform == "darwin" else \
+        what = " The Mac stays awake, screen can sleep (keep it plugged in)." if sys.platform == "darwin" else \
                " The computer stays awake (keep it plugged in)."
     open(PIDFILE, "w").write(str(p.pid))
     return what
@@ -302,13 +391,23 @@ def save(cfg):
 def cli(args):
     cmd = args[0]
     if cmd == "on":
-        # Run from a chat: Away covers only that chat. Run from the moon or Terminal: all chats.
+        # Run from a chat: Away covers that chat (added to any others). From the moon or Terminal: all chats.
         session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-        open(FLAG, "w").write(time.strftime("%d %b %H:%M") + "\n" + session)
+        was_on = os.path.exists(FLAG)
+        covered = chats() if was_on else []
+        if was_on and not covered:
+            covered = []                     # already on for all chats: stays that way
+        elif session:
+            covered = covered + [session] if session not in covered else covered
+        else:
+            covered = []                     # turned on for all chats
+        since = open(FLAG).read().splitlines()[0] if was_on else time.strftime("%d %b %H:%M")
+        open(FLAG, "w").write("\n".join([since] + covered))
         awake = keep_awake()
         lv = level(config())
-        log("--- ON", f"{'this chat' if session else 'all chats'}, {lv}")
-        print(f"Away mode ON for {'this chat' if session else 'all chats'}, level {lv}." + awake)
+        scope = f"{len(covered)} chat{'s' if len(covered) != 1 else ''}" if covered else "all chats"
+        log("--- ON", f"{'this chat' if session else 'all chats'} ({scope} now), {lv}")
+        print(f"Away mode ON for {'this chat' if session and covered else 'all chats'}, level {lv}." + awake)
     elif cmd == "off":
         stop_away()
         log("--- OFF", "")
@@ -317,8 +416,8 @@ def cli(args):
     elif cmd == "status":
         lv = level(config())
         if os.path.exists(FLAG):
-            since = open(FLAG).read().splitlines()[0]
-            print(f"Away mode ON since {since}, for {'one chat' if owner() else 'all chats'}, level {lv}")
+            since, n = open(FLAG).read().splitlines()[0], len(chats())
+            print(f"Away mode ON since {since}, for {f'{n} chat(s)' if n else 'all chats'}, level {lv}")
         else:
             print(f"Away mode OFF (level when on: {lv})")
     elif cmd == "report":

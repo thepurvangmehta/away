@@ -1,5 +1,7 @@
 # Away for Claude Code
 
+[![tests](https://github.com/thepurvangmehta/away/actions/workflows/test.yml/badge.svg)](https://github.com/thepurvangmehta/away/actions/workflows/test.yml)
+
 **Claude keeps working while you sleep. You get a short list in the morning.**
 
 <img src="docs/moon-menu.png" width="420" alt="The Away moon in the Mac menu bar: 12 approved, Needs you (12)">
@@ -52,7 +54,7 @@ Change it any time with `/away:setup`, and add your own rules on top.
 |---|---|
 | **macOS** | Yes. Tested live. Includes the menu bar moon and keeping the Mac awake |
 | **Linux** | Should work (keeps awake with `systemd-inhibit`). Not tested yet |
-| **Windows** | Beta. Handles PowerShell commands and keeps the PC awake. Needs Python. Not tested on a real Windows machine yet, so please [report](https://github.com/thepurvangmehta/away/issues) how it goes |
+| **Windows** | Beta. Handles PowerShell commands and keeps the PC awake. Needs Python and Git Bash. The rule checks run on Windows automatically, but it hasn't been used day to day there yet, so please [report](https://github.com/thepurvangmehta/away/issues) how it goes |
 | **Claude Code on the web** | Not yet. Plugins installed on your computer don't load in web sessions |
 
 ## Why not just use auto mode, bypass, or /goal?
@@ -87,7 +89,8 @@ It's a small set of Claude Code hooks and four commands. No server, no account, 
 
 Deleting files · force-pushing or pushing to main · deploying (Vercel, Netlify, Firebase, Wrangler) ·
 publishing packages · admin (`sudo`, PowerShell admin) and system changes · secrets (`.env`, `.ssh`, keychain) ·
-running scripts piped from the internet · sending messages · connector actions that send, delete, publish, pay or share.
+running scripts piped from the internet · sending messages, or sending data out through web requests (local addresses are fine) ·
+connector actions that send, delete, publish, pay or share (read-only ones like list or get are fine).
 
 Your own deny rules in `settings.json` always win.
 
@@ -101,6 +104,15 @@ python3 ~/.claude/plugins/cache/away/away/*/scripts/away.py add refuse_commands 
 
 Settings live in `~/.claude/away.json` (`level`, `name`, `refuse_commands`, `refuse_paths`, `refuse_tools`).
 Each rule is a pattern. A match means "skip it and tell me in the morning".
+
+## What Away is, and isn't
+
+Away is a **seatbelt, not a locked room**. It reads each command before it runs and stops the risky ones.
+It can't see inside a program Claude writes and then runs: if that program deletes files, Away won't know.
+For real isolation, use it together with Claude Code's built-in sandbox (`/sandbox`).
+
+What it does guarantee: Claude can't switch Away off or loosen its rules by itself.
+Only you can, by typing `/away:off` (or "I'm in"), clicking the moon, or running it from a terminal.
 
 ## Good to know
 
