@@ -1,25 +1,16 @@
 # Away for Claude Code
 
-Claude Code is great until you step away.
-You come back and it's been waiting on one "Allow?" for three hours.
+**Claude keeps working while you sleep. You get a short list in the morning.**
 
-Away mode keeps it working while you sleep.
-It skips anything risky and hands you a short list in the morning.
+<img src="docs/moon-menu.png" width="420" alt="The Away moon in the Mac menu bar: 12 approved, Needs you (12)">
 
-## What it does
+You give Claude Code a big job before bed.
+You wake up and it's been sitting on one "Allow?" since 1 AM.
 
-| While you're away | What happens |
-|---|---|
-| Normal work (terminal, files, installs, tests) | Approved, Claude keeps going |
-| Risky things (deleting, deploying, pushing to main, sending, secrets, paid tools) | Refused and added to a **Needs you** list |
-| Claude wants to ask you something | It can't ask. It goes with its recommended option and lists it for you in the morning |
-| Claude wants to open a new web page in the browser | Blocked, because the app's "allow this site?" pop-up can't be answered while you're away. It reads the page another way or leaves it for you |
-| Claude finishes a plan and wants your OK | It can't get it. The plan goes on the Needs you list |
-| Claude stops early or asks "should I continue?" | Sent back to work until the goal is done (capped at 30 nudges) |
+Away fixes that. Normal work goes ahead. Anything risky waits for you.
+Nothing blocks the night.
 
-When away mode is off, nothing changes. Your own deny rules always win.
-
-## Install
+## Start in one minute
 
 In Claude Code:
 
@@ -28,29 +19,57 @@ In Claude Code:
 /plugin install away@away
 ```
 
-Needs Python 3 (already on macOS). Keeping the machine awake works on macOS; on other systems, keep it awake yourself.
-
-## Use
-
-1. Type **`/away:on`** followed by the job, for example `/away:on fix the images on the Work page`.
-   Or give Claude the job first, then say "I'm going to sleep". Away covers only that chat, and switches off when the job is done.
-2. In the morning, type **`/away:off`** (or say "I'm in"). You get what got done, what was refused, the answers it picked for you, and the Needs you list.
-
-Keep the laptop plugged in with the lid open.
-
-## Menu bar moon (Mac, optional)
-
-A moon in your menu bar: outline when Away is off, filled when it's on.
-Click it to turn Away on for every open chat, or off, see tonight's count, and read the "Needs you" list.
-A number next to the moon means new things are waiting for you.
+Then, before you leave:
 
 ```
-git clone https://github.com/thepurvangmehta/away && ./away/menubar/build.sh
+/away:on fix the failing tests and update the docs
 ```
 
-Needs Xcode Command Line Tools (`xcode-select --install`). Turn on "Open at login" from its menu.
+In the morning:
 
-## Your own refuse list (optional)
+```
+/away:off
+```
+
+Optional, on a Mac: `/away:moon` puts a moon in your menu bar. Filled means Away is on.
+A number next to it means things are waiting for you.
+
+## Why not just use auto mode, bypass, or /goal?
+
+Use them. Away works alongside them and covers what they leave open.
+
+| What stops Claude at night | Auto mode | Bypass permissions | `/goal` | **Away** |
+|---|---|---|---|---|
+| "Allow this command?" pop-ups | Mostly handled | Mostly handled (a few protected spots still ask) | Depends on your mode | **Handled** |
+| Claude asking you a question | Waits for you | Waits for you | Waits for you | **Goes with its recommended option, tells you later** |
+| Browser "allow this site?" and flagged page actions | Sometimes asks | Sometimes asks | Depends on your mode | **Keeps Claude out of the browser, notes it for you** |
+| Claude stops early | Stops | Stops | Keeps going | **Keeps going** |
+| Risky things (delete, deploy, push to main, send) | Blocked or allowed by a model | **Allowed** | No change | **Skipped and listed for you** |
+| What happened overnight | Scroll the chat | Scroll the chat | Scroll the chat | **One morning list** |
+
+Based on Claude Code's own docs as of September 2026: no permission mode auto-approves questions to you.
+
+## How it works
+
+1. `/away:on <job>` switches Away on **for that chat only**. Your other chats behave as normal.
+2. Every pop-up Claude would show you is answered in under a second:
+   - normal work is approved
+   - risky things are refused and added to **Needs you**
+   - questions, site approvals and plan approvals are turned into notes instead of waits
+3. If Claude stops before the job is done, Away sends it back to work (up to 30 times).
+4. When the job is done, Away switches itself off. `/away:off` gives you the report.
+
+It's a small set of Claude Code hooks and three commands. No server, no account, nothing leaves your machine.
+
+## What gets skipped for you
+
+Deleting files · force-pushing or pushing to main · deploying (Vercel, Netlify, Firebase, Wrangler) ·
+publishing packages · admin (`sudo`) and system changes · secrets (`.env`, `.ssh`, keychain) ·
+running scripts piped from the internet · sending messages · connector actions that send, delete, publish, pay or share.
+
+Your own deny rules in `settings.json` always win.
+
+### Add your own
 
 Create `~/.claude/away.json`:
 
@@ -63,18 +82,24 @@ Create `~/.claude/away.json`:
 }
 ```
 
-Each entry is a regular expression. A match means "skip it and ask me in the morning".
+Each entry is a pattern. A match means "skip it and tell me in the morning".
 
 ## Good to know
 
-- It can't answer pop-ups that come from the Claude app itself: "Do you trust this folder?" (start in a folder you've used before) and the browser's "allow this site?" (so Away keeps Claude out of the browser overnight).
-- It's cautious on purpose. A command that only *mentions* `rm -rf` gets skipped too.
-- If Remote Control is on, your phone may still buzz for prompts Away mode already approved (a known Claude Code bug, anthropics/claude-code#96126). Turn it off for the night.
-- You're trusting Claude with your machine overnight. Use it on work you'd be fine to review in the morning, and keep backups.
+- **Start in a folder you've used before.** The app's "Do you trust this folder?" screen can't be answered by anything but you.
+- **Keep the laptop plugged in.** Away keeps a Mac awake while it's on. On other systems, keep it awake yourself.
+- **It's careful on purpose.** A command that only mentions `push` and `main` gets skipped too.
+- **Remote Control:** your phone may still buzz for prompts Away already approved (a known Claude Code bug, anthropics/claude-code#96126).
+- You're trusting Claude with your machine overnight. Give it work you'd be happy to review in the morning.
+
+Needs Python 3 (already on macOS). The moon needs Apple's free developer tools (`xcode-select --install`).
 
 ## Want it set up for your team?
 
-I set this up for studios and small teams, with rules that fit how you work.
+I set up Away for studios and small teams: rules that fit how you work, and jobs that actually finish overnight.
 [thepurvangmehta.com](https://thepurvangmehta.com)
 
-MIT license. Made by Purvang Mehta.
+---
+
+Made by [Purvang Mehta](https://thepurvangmehta.com), a product designer. MIT license.
+Found a pop-up Away doesn't catch? [Open an issue](https://github.com/thepurvangmehta/away/issues).

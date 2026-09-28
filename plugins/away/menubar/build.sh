@@ -1,9 +1,10 @@
 #!/bin/bash
 # Builds Away.app (menu bar moon) and puts it in ~/Applications. Needs Xcode Command Line Tools.
+command -v swiftc >/dev/null || { echo "NEEDS_XCODE_TOOLS: run  xcode-select --install  then try again"; exit 2; }
 set -euo pipefail
 cd "$(dirname "$0")"
-APP=build/Away.app
-rm -rf build && mkdir -p "$APP/Contents/MacOS"
+APP="$(mktemp -d)/Away.app"   # build outside the plugin folder
+mkdir -p "$APP/Contents/MacOS"
 swiftc -O Away.swift -o "$APP/Contents/MacOS/Away" -framework AppKit -framework ServiceManagement
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
