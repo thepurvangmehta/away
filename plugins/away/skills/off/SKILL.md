@@ -5,7 +5,8 @@ description: Turn Away mode off and give the morning report. Use when the user t
 
 # Away mode: off
 
-1. Run `python3 "${CLAUDE_SKILL_DIR}/../../scripts/away.py" off` and read the report it prints.
+1. Run `python3 "${CLAUDE_SKILL_DIR}/../../scripts/away.py" off` and read the report it prints
+   (on Windows, use `python` if `python3` isn't found).
 2. Tell them, in plain words:
    - what got done
    - what was refused

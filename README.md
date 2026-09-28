@@ -31,8 +31,29 @@ In the morning:
 /away:off
 ```
 
-Optional, on a Mac: `/away:moon` puts a moon in your menu bar. Filled means Away is on.
-A number next to it means things are waiting for you.
+Optional:
+- `/away:setup` picks how careful Away is (three quick questions, once).
+- `/away:moon` (Mac) puts a moon in your menu bar. Filled means Away is on.
+  A number next to it means things are waiting for you.
+
+## Pick how careful it is
+
+| Level | Good for | What waits for you |
+|---|---|---|
+| **Careful** | Client or company code | Everything in Balanced, plus installing software, any push to GitHub, database commands, writing outside the project |
+| **Balanced** (default) | Most work | Deleting, deploying, force push or push to main, secrets, sending messages, paid or outward connector actions |
+| **Hands-off** | Your own side projects | Only what can't be undone: deleting outside the project, force push or push to main, throwing away git work, deploying, secrets, sending |
+
+Change it any time with `/away:setup`, and add your own rules on top.
+
+## Works on
+
+| | |
+|---|---|
+| **macOS** | Yes. Tested live. Includes the menu bar moon and keeping the Mac awake |
+| **Linux** | Should work (keeps awake with `systemd-inhibit`). Not tested yet |
+| **Windows** | Beta. Handles PowerShell commands and keeps the PC awake. Needs Python. Not tested on a real Windows machine yet, so please [report](https://github.com/thepurvangmehta/away/issues) how it goes |
+| **Claude Code on the web** | Not yet. Plugins installed on your computer don't load in web sessions |
 
 ## Why not just use auto mode, bypass, or /goal?
 
@@ -60,40 +81,36 @@ Based on Claude Code's own docs as of September 2026: no permission mode auto-ap
 4. If Claude stops before the job is done, Away sends it back to work (up to 30 times).
 5. When the job is done, Away switches itself off. `/away:off` gives you the report.
 
-It's a small set of Claude Code hooks and three commands. No server, no account, nothing leaves your machine.
+It's a small set of Claude Code hooks and four commands. No server, no account, nothing leaves your machine.
 
-## What gets skipped for you
+## What gets skipped for you (Balanced)
 
 Deleting files · force-pushing or pushing to main · deploying (Vercel, Netlify, Firebase, Wrangler) ·
-publishing packages · admin (`sudo`) and system changes · secrets (`.env`, `.ssh`, keychain) ·
+publishing packages · admin (`sudo`, PowerShell admin) and system changes · secrets (`.env`, `.ssh`, keychain) ·
 running scripts piped from the internet · sending messages · connector actions that send, delete, publish, pay or share.
 
 Your own deny rules in `settings.json` always win.
 
 ### Add your own
 
-Create `~/.claude/away.json`:
+The easy way is `/away:setup`. Or from a terminal:
 
-```json
-{
-  "name": "Sam",
-  "refuse_commands": ["\\bterraform\\s+apply"],
-  "refuse_paths": ["/Finance/"],
-  "refuse_tools": ["stripe"]
-}
+```
+python3 ~/.claude/plugins/cache/away/away/*/scripts/away.py add refuse_commands "\bterraform\s+apply"
 ```
 
-Each entry is a pattern. A match means "skip it and tell me in the morning".
+Settings live in `~/.claude/away.json` (`level`, `name`, `refuse_commands`, `refuse_paths`, `refuse_tools`).
+Each rule is a pattern. A match means "skip it and tell me in the morning".
 
 ## Good to know
 
 - **Start in a folder you've used before.** The app's "Do you trust this folder?" screen can't be answered by anything but you.
-- **Keep the laptop plugged in.** Away keeps a Mac awake while it's on. On other systems, keep it awake yourself.
+- **Keep the laptop plugged in.** Away keeps the computer awake while it's on.
 - **It's careful on purpose.** A command that only mentions `push` and `main` gets skipped too.
 - **Remote Control:** your phone may still buzz for prompts Away already approved (a known Claude Code bug, anthropics/claude-code#96126).
 - You're trusting Claude with your machine overnight. Give it work you'd be happy to review in the morning.
 
-Needs Python 3 (already on macOS). The moon needs Apple's free developer tools (`xcode-select --install`).
+Needs Python 3 (already on macOS; on Windows, install it from python.org). The moon needs Apple's free developer tools (`xcode-select --install`).
 
 ## Want it set up for your team?
 
