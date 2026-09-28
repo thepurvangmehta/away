@@ -118,7 +118,7 @@ Only you can, by typing `/away:off` (or "I'm in"), clicking the moon, or running
 
 - **Start in a folder you've used before.** The app's "Do you trust this folder?" screen can't be answered by anything but you.
 - **Keep the laptop plugged in.** Away keeps the computer awake while it's on.
-- **It's careful on purpose.** A command that only mentions `push` and `main` gets skipped too.
+- **It's careful on purpose.** Searching for risky words or writing them in a commit message is fine, but other commands that only mention them (like `push` and `main`) get skipped too.
 - **Remote Control:** your phone may still buzz for prompts Away already approved (a known Claude Code bug, anthropics/claude-code#96126).
 - You're trusting Claude with your machine overnight. Give it work you'd be happy to review in the morning.
 
