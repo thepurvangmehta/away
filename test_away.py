@@ -28,7 +28,13 @@ assert perm(tool="mcp__github__get_issue") == "allow"
 json.dump({"refuse_commands": [r"terraform\s+apply"], "refuse_tools": ["stripe"]}, open(f"{home}/.claude/away.json", "w"))
 assert perm("terraform apply") == "deny" and perm(tool="mcp__stripe__list") == "deny"
 q = {"questions": [{"question": "Which?", "header": "x", "multiSelect": False, "options": [{"label": "A (Recommended)"}, {"label": "B"}]}]}
-assert run("PreToolUse", "AskUserQuestion", q)["hookSpecificOutput"]["updatedInput"]["answers"] == {"Which?": "A (Recommended)"}
+r = run("PreToolUse", "AskUserQuestion", q)["hookSpecificOutput"]  # blocked: the app would still show the card
+assert r["permissionDecision"] == "deny" and "A (Recommended)" in r["permissionDecisionReason"]
+for t in ["mcp__Claude_Browser__navigate", "mcp__remote-devices__Claude_Browser__navigate", "mcp__claude-in-chrome__navigate"]:
+    assert run("PreToolUse", t, {"url": "https://new-site.example"})["hookSpecificOutput"]["permissionDecision"] == "deny", t
+assert perm("git -C ~/some/repo push --dry-run origin main") == "deny"  # slipped through in the 28 Sep live test
+assert perm("git -C ~/some/repo push -f origin feature") == "deny"
+assert perm("git -C ~/some/repo push origin feature") == "allow"
 assert run("Stop", last_assistant_message="Shall I continue?")["decision"] == "block"
 assert run("Stop", last_assistant_message="Summary\nAWAY: DONE") is None
 # Away turned on from one chat covers only that chat, and switches off when that chat's job is done

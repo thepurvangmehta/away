@@ -20,7 +20,7 @@ The job the user typed after the command: $ARGUMENTS
 2. Say the goal back in one line.
 3. Work until the goal is done. While Away is on, a hook approves normal work,
    refuses risky things (deleting, deploying, pushing to main, sending, secrets, paid tools),
-   answers your questions with the first (recommended) option, and sends you back to work if you stop early.
+   blocks questions (go with the recommended option yourself and note it), blocks opening browser pages (their site pop-ups can't be answered), and sends you back to work if you stop early.
 4. Never wait for the user. Skip anything that needs them and keep a **"Needs you"** list.
    Don't retry or work around a refusal. Stay on the goal: don't pick up other tasks, reminders or board items.
 5. When the goal is done, or everything left is on the list, write a short summary with the

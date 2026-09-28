@@ -8,7 +8,8 @@
 
 With no arguments it runs as the Claude Code hook (see hooks/hooks.json):
   PermissionRequest              -> allow normal work, refuse risky things ("Needs you")
-  PreToolUse on AskUserQuestion  -> pick the first option (the "Recommended" one)
+  PreToolUse on AskUserQuestion  -> blocked; Claude goes with the recommended option and notes it
+  PreToolUse on browser pages    -> blocked; the app's site pop-up can't be answered unattended
   Stop                           -> send Claude back to work until it says AWAY: DONE
 When away mode is off it does nothing, so everything behaves as usual.
 Your deny rules in settings.json still win over this hook.
@@ -29,10 +30,11 @@ MAX_NUDGES = 30  # ponytail: per-session cap so an impossible goal can't loop al
 RISKY_BASH = [
     (r"\brm\s+(-\w*[rRf]|--recursive|--force)", "deleting files"),
     (r"\brmdir\b|\bshred\b|\bsrm\b", "deleting files"),
-    (r"\bgit\s+push\b.*(\s-f\b|--force)", "force-pushing"),
-    (r"\bgit\s+push\b.*\b(main|master)\b", "pushing to main"),
-    (r"\bgit\s+(reset\s+--hard|clean\s+-\w*f|branch\s+-D|filter-branch|filter-repo)", "throwing away git work"),
-    (r"\bgit\s+(config\b.*user\.|commit\b.*--author)", "changing git identity"),
+    # git rules allow options before the subcommand, e.g. "git -C some/folder push origin main"
+    (r"\bgit\b[^|;&\n]*\spush\b[^|;&\n]*(\s-f\b|--force)", "force-pushing"),
+    (r"\bgit\b[^|;&\n]*\spush\b[^|;&\n]*\b(main|master)\b", "pushing to main"),
+    (r"\bgit\b[^|;&\n]*\s(reset\s+--hard|clean\s+-\w*f|branch\s+-D|filter-branch|filter-repo)", "throwing away git work"),
+    (r"\bgit\b[^|;&\n]*\s(config\b.*user\.|commit\b.*--author)", "changing git identity"),
     (r"\b(vercel|netlify)\b(?!\s+(dev|logs|ls|list|whoami|inspect|link|env\s+pull)\b)", "deploying"),
     (r"\bfirebase\s+deploy|\bwrangler\s+(deploy|publish|pages\s+deploy|secret|delete)", "deploying"),
     (r"\bgh\s+(pr\s+merge|repo\s+(delete|edit)|release\s+create|secret)", "publishing on GitHub"),
@@ -117,6 +119,14 @@ def stop_away():
             os.remove(f"{HOME}/.claude/{f}")
 
 
+BROWSER = re.compile(r"Claude_Browser__(navigate|preview_start|tabs_create)|claude-in-chrome__(navigate|tabs_create)")
+
+
+def deny(event, reason):
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "permissionDecision": "deny",
+                                             "permissionDecisionReason": reason}}))
+
+
 def hook():
     if not os.path.exists(FLAG):
         return  # away mode off: normal behaviour
@@ -128,12 +138,21 @@ def hook():
     event, tool, inp = data.get("hook_event_name"), data.get("tool_name", ""), data.get("tool_input") or {}
 
     if event == "PreToolUse" and tool == "AskUserQuestion":
+        # Blocked, not auto-answered: the desktop app still shows the question card and waits
+        # even when a hook supplies answers (found in the 28 Sep live test).
         answers = {q["question"]: q["options"][0]["label"] for q in inp.get("questions", []) if q.get("options")}
         log("ANSWERED", "; ".join(f"{k} -> {v}" for k, v in answers.items()))
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse", "permissionDecision": "allow",
-            "permissionDecisionReason": f"Away mode: {who} is away, so the first (recommended) option was picked. Note it for the morning.",
-            "updatedInput": {**inp, "answers": answers}}}))
+        picks = "; ".join(f'"{k}" -> "{v}"' for k, v in answers.items())
+        deny("PreToolUse", f"Away mode: {who} is away and can't answer questions. Don't ask. "
+             f"Go with the recommended option yourself ({picks}), list it under 'Answered for you' "
+             "in your final summary so they can change it, and keep working.")
+
+    elif event == "PreToolUse" and BROWSER.search(tool):
+        # The app's own "allow this site?" pop-up can't be answered by a hook and would wait all night.
+        log("REFUSED", f"(opening a web page needs their OK in the app) {short(tool, inp)}")
+        deny("PreToolUse", f"Away mode: {who} is away. Opening pages in the browser can trigger the app's "
+             "'allow this site?' pop-up, which nobody can answer tonight. Don't use the browser. "
+             "Read the page with WebFetch instead if that's enough, otherwise put it under 'Needs you' and move on.")
 
     elif event == "PermissionRequest":
         why = risk(tool, inp, cfg)

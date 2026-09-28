@@ -12,7 +12,8 @@ It skips anything risky and hands you a short list in the morning.
 |---|---|
 | Normal work (terminal, files, installs, tests) | Approved, Claude keeps going |
 | Risky things (deleting, deploying, pushing to main, sending, secrets, paid tools) | Refused and added to a **Needs you** list |
-| Claude wants to ask you something | It takes its own recommended option and notes it |
+| Claude wants to ask you something | It can't ask. It goes with its recommended option and lists it for you in the morning |
+| Claude wants to open a new web page in the browser | Blocked, because the app's "allow this site?" pop-up can't be answered while you're away. It reads the page another way or leaves it for you |
 | Claude stops early or asks "should I continue?" | Sent back to work until the goal is done (capped at 30 nudges) |
 
 When away mode is off, nothing changes. Your own deny rules always win.
@@ -65,7 +66,7 @@ Each entry is a regular expression. A match means "skip it and ask me in the mor
 
 ## Good to know
 
-- It can't answer pop-ups that don't come from Claude Code itself, like "Do you trust this folder?" the first time you open a new folder. Start in a folder you've used before.
+- It can't answer pop-ups that come from the Claude app itself: "Do you trust this folder?" (start in a folder you've used before) and the browser's "allow this site?" (so Away keeps Claude out of the browser overnight).
 - It's cautious on purpose. A command that only *mentions* `rm -rf` gets skipped too.
 - If Remote Control is on, your phone may still buzz for prompts Away mode already approved (a known Claude Code bug, anthropics/claude-code#96126). Turn it off for the night.
 - You're trusting Claude with your machine overnight. Use it on work you'd be fine to review in the morning, and keep backups.
