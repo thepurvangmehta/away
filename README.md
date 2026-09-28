@@ -14,6 +14,7 @@ It skips anything risky and hands you a short list in the morning.
 | Risky things (deleting, deploying, pushing to main, sending, secrets, paid tools) | Refused and added to a **Needs you** list |
 | Claude wants to ask you something | It can't ask. It goes with its recommended option and lists it for you in the morning |
 | Claude wants to open a new web page in the browser | Blocked, because the app's "allow this site?" pop-up can't be answered while you're away. It reads the page another way or leaves it for you |
+| Claude finishes a plan and wants your OK | It can't get it. The plan goes on the Needs you list |
 | Claude stops early or asks "should I continue?" | Sent back to work until the goal is done (capped at 30 nudges) |
 
 When away mode is off, nothing changes. Your own deny rules always win.

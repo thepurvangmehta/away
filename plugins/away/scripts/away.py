@@ -147,6 +147,12 @@ def hook():
              f"Go with the recommended option yourself ({picks}), list it under 'Answered for you' "
              "in your final summary so they can change it, and keep working.")
 
+    elif event == "PreToolUse" and tool == "ExitPlanMode":
+        # The plan-approval card ignores hook answers (anthropics/claude-code#97656), and approving a plan is theirs to do.
+        log("REFUSED", "(approving a plan is their call) ExitPlanMode")
+        deny("PreToolUse", f"Away mode: {who} is away and can't approve a plan. Don't wait for approval. "
+             "Put the finished plan under 'Needs you' in your final summary, then end with AWAY: DONE.")
+
     elif event == "PreToolUse" and BROWSER.search(tool):
         # The app's own "allow this site?" pop-up can't be answered by a hook and would wait all night.
         log("REFUSED", f"(opening a web page needs their OK in the app) {short(tool, inp)}")

@@ -30,6 +30,7 @@ assert perm("terraform apply") == "deny" and perm(tool="mcp__stripe__list") == "
 q = {"questions": [{"question": "Which?", "header": "x", "multiSelect": False, "options": [{"label": "A (Recommended)"}, {"label": "B"}]}]}
 r = run("PreToolUse", "AskUserQuestion", q)["hookSpecificOutput"]  # blocked: the app would still show the card
 assert r["permissionDecision"] == "deny" and "A (Recommended)" in r["permissionDecisionReason"]
+assert run("PreToolUse", "ExitPlanMode", {})["hookSpecificOutput"]["permissionDecision"] == "deny"
 for t in ["mcp__Claude_Browser__navigate", "mcp__remote-devices__Claude_Browser__navigate", "mcp__claude-in-chrome__navigate"]:
     assert run("PreToolUse", t, {"url": "https://new-site.example"})["hookSpecificOutput"]["permissionDecision"] == "deny", t
 assert perm("git -C ~/some/repo push --dry-run origin main") == "deny"  # slipped through in the 28 Sep live test
