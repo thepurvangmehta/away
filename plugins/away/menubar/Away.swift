@@ -144,7 +144,7 @@ final class App: NSObject, NSApplicationDelegate {
         if isOn, let s = try? String(contentsOfFile: flagPath, encoding: .utf8) {
             let parts = s.split(separator: "\n", omittingEmptySubsequences: false)
             let oneChat = parts.count > 1 && !parts[1].trimmingCharacters(in: .whitespaces).isEmpty
-            since = "Since \(parts[0]), \(oneChat ? "for one chat" : "for all chats")"
+            since = "Since \(parts[0]) · \(oneChat ? "one chat" : "all chats")"
         }
         let dot = NSView()
         dot.wantsLayer = true
@@ -156,31 +156,39 @@ final class App: NSObject, NSApplicationDelegate {
         head.spacing = 6
         stack.addArrangedSubview(head)
         gap(4)
-        let busy = run.approved + run.answered + run.refused.count > 0
-        stack.addArrangedSubview(label(isOn ? "Claude is working for you" : busy ? "Last time you were away" : "Claude waits for you",
-                                       20, .bold))
-        if isOn { stack.addArrangedSubview(label(since, 12, .regular, .secondaryLabelColor)) }
-        gap(10)
-        if busy {
-            stack.addArrangedSubview(label("\(run.approved) approved · \(run.answered) answered for you", 13))
-        } else if !isOn {
-            stack.addArrangedSubview(label("Turn it on before you sleep or step out. Normal work goes ahead; anything risky waits for you.",
-                                           12, .regular, .secondaryLabelColor))
+        // One headline: what matters right now.
+        let n = run.refused.count
+        let title = isOn ? "Working for you" : n > 0 ? "\(n) thing\(n == 1 ? "" : "s") need\(n == 1 ? "s" : "") you" : "All clear"
+        stack.addArrangedSubview(label(title, 22, .bold))
+        var facts: [String] = []
+        if isOn { facts.append(since) }
+        if run.approved > 0 { facts.append("\(run.approved) done") }
+        if run.answered > 0 { facts.append("\(run.answered) question\(run.answered == 1 ? "" : "s") answered") }
+        if !facts.isEmpty { stack.addArrangedSubview(label(facts.joined(separator: " · "), 13, .regular, .secondaryLabelColor)) }
+        if !isOn && n == 0 {
+            stack.addArrangedSubview(label("Turn it on before you step away.", 13, .regular, .secondaryLabelColor))
         }
-        if !run.refused.isEmpty {
-            gap(10)
-            stack.addArrangedSubview(label("Needs you (\(run.refused.count))", 13, .semibold, .systemOrange))
-            for r in run.refused.prefix(5) {
-                let one = NSTextField(labelWithString: "• \(r)")  // one line each, so the list scans
-                one.font = .systemFont(ofSize: 12)
-                one.textColor = .secondaryLabelColor
-                one.lineBreakMode = .byTruncatingTail
-                one.toolTip = r
-                one.widthAnchor.constraint(equalToConstant: cardWidth - 2 * pad).isActive = true
-                stack.addArrangedSubview(one)
+        // Needs you: grouped by reason, plain words, no commands.
+        if n > 0 {
+            gap(12)
+            var groups: [(String, Int)] = []
+            for r in run.refused {
+                let why = r.components(separatedBy: ":").first!.trimmingCharacters(in: .whitespaces)
+                let nice = why.prefix(1).uppercased() + why.dropFirst()
+                if let i = groups.firstIndex(where: { $0.0 == nice }) { groups[i].1 += 1 } else { groups.append((nice, 1)) }
             }
-            if run.refused.count > 5 {
-                stack.addArrangedSubview(label("+ \(run.refused.count - 5) more in the full report", 12, .regular, .tertiaryLabelColor))
+            for (why, count) in groups.prefix(4) {
+                let name = NSTextField(labelWithString: why)
+                name.font = .systemFont(ofSize: 13)
+                name.lineBreakMode = .byTruncatingTail
+                name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)  // shorten, keep the count
+                let num = label("\(count)", 13, .semibold, .systemOrange)
+                let row = NSStackView(views: [name, NSView(), num])
+                row.widthAnchor.constraint(equalToConstant: w).isActive = true
+                stack.addArrangedSubview(row)
+            }
+            if groups.count > 4 {
+                stack.addArrangedSubview(label("+ \(groups.count - 4) more in the report", 12, .regular, .tertiaryLabelColor))
             }
         }
         gap(12)
@@ -192,7 +200,7 @@ final class App: NSObject, NSApplicationDelegate {
         let rows = NSStackView(views: [
             RowButton(isOn ? "Turn off (I'm in)" : "Turn on for all chats", symbol: isOn ? "sun.max" : "moon.fill",
                       bold: true) { [weak self] in self?.toggle() },
-            RowButton("Open full report", symbol: "doc.text") { [weak self] in self?.openReport() },
+            RowButton("See the full report", symbol: "doc.text") { [weak self] in self?.openReport() },
             RowButton(SMAppService.mainApp.status == .enabled ? "Opens at login  ✓" : "Open at login",
                       symbol: "power") { [weak self] in self?.toggleLogin() },
             RowButton("Quit Away", symbol: "xmark.circle") { NSApp.terminate(nil) },
