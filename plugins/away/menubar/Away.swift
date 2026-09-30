@@ -1,13 +1,16 @@
 // Away: a menu bar moon for the Away plugin for Claude Code.
 // Moon outline = off, filled moon = on. The number next to it = "Needs you" items from the last run.
+// Click it for a card: on or off, what happened, what needs you, and the switch.
 // It reads the same files the plugin writes (~/.claude/away.on, ~/.claude/away.log)
 // and toggles by running the plugin's own script, so there is one source of truth.
+// `Away --snapshot out.png` draws the card to an image and quits (to check the design).
 import AppKit
 import ServiceManagement
 
 let home = FileManager.default.homeDirectoryForCurrentUser.path
 let flagPath = "\(home)/.claude/away.on"
 let logPath = "\(home)/.claude/away.log"
+let cardWidth: CGFloat = 300, pad: CGFloat = 16
 
 struct Run {
     var refused: [String] = [], approved = 0, answered = 0, nudged = 0
@@ -42,13 +45,72 @@ func scriptPath() -> String? {
         .last { FileManager.default.fileExists(atPath: $0) }
 }
 
-final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
+func label(_ s: String, _ size: CGFloat, _ weight: NSFont.Weight = .regular,
+           _ color: NSColor = .labelColor) -> NSTextField {
+    let l = NSTextField(wrappingLabelWithString: s)
+    l.font = .systemFont(ofSize: size, weight: weight)
+    l.textColor = color
+    l.isSelectable = false
+    l.preferredMaxLayoutWidth = cardWidth - 2 * pad
+    return l
+}
+
+/// A full-width row that highlights on hover, like a menu item. Icons sit in a fixed 18pt column,
+/// so every icon and title lines up with the text above.
+final class RowButton: NSView {
+    let onClick: () -> Void
+    init(_ title: String, symbol: String, bold: Bool = false, _ onClick: @escaping () -> Void) {
+        self.onClick = onClick
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer!.cornerRadius = 6
+        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!)
+        icon.contentTintColor = bold ? .labelColor : .secondaryLabelColor
+        icon.symbolConfiguration = .init(pointSize: 13, weight: bold ? .semibold : .regular)
+        let text = NSTextField(labelWithString: title)
+        text.font = .systemFont(ofSize: 13, weight: bold ? .semibold : .regular)
+        for v in [icon, text] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 28),
+            widthAnchor.constraint(equalToConstant: cardWidth - 2 * pad),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 18),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            text.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            text.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func mouseUp(with e: NSEvent) { onClick() }
+    override func updateTrackingAreas() {
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways],
+                                       owner: self, userInfo: nil))
+    }
+    override func mouseEntered(with e: NSEvent) { layer!.backgroundColor = NSColor.quaternaryLabelColor.cgColor }
+    override func mouseExited(with e: NSEvent) { layer!.backgroundColor = nil }
+}
+
+final class App: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    let popover = NSPopover()
     var seenRefusals = 0  // ponytail: in-memory only; the badge comes back after a relaunch
 
     func applicationDidFinishLaunching(_ note: Notification) {
-        item.menu = NSMenu()
-        item.menu!.delegate = self
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+            let v = card()
+            v.wantsLayer = true
+            v.layer!.backgroundColor = NSColor(white: 0.16, alpha: 1).cgColor  // like the dark popover
+            let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds)!
+            v.cacheDisplay(in: v.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[i + 1]))
+            exit(0)
+        }
+        item.button?.target = self
+        item.button?.action = #selector(togglePopover)
+        popover.behavior = .transient
         refresh()
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -67,50 +129,106 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.toolTip = isOn ? "Away is on" : "Away is off"
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
+    /// The card: on or off and since when, what happened, what needs you, then actions.
+    func card() -> NSView {
         let run = lastRun()
-        seenRefusals = run.refused.count  // opening the menu clears the badge
-        refresh()
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.edgeInsets = NSEdgeInsets(top: pad, left: pad, bottom: pad - 4, right: pad)
+        func gap(_ n: CGFloat) { stack.setCustomSpacing(n, after: stack.arrangedSubviews.last!) }
+        let w = cardWidth - 2 * pad
 
         var since = ""
         if isOn, let s = try? String(contentsOfFile: flagPath, encoding: .utf8) {
             let parts = s.split(separator: "\n", omittingEmptySubsequences: false)
             let oneChat = parts.count > 1 && !parts[1].trimmingCharacters(in: .whitespaces).isEmpty
-            since = " since \(parts[0]), \(oneChat ? "for one chat" : "for all chats")"
+            since = "Since \(parts[0]), \(oneChat ? "for one chat" : "for all chats")"
         }
-        menu.addItem(disabled(isOn ? "Away is on\(since)" : "Away is off"))
-        menu.addItem(action(isOn ? "Turn off (I'm in)" : "Turn on for all chats", #selector(toggle)))
-        menu.addItem(.separator())
-
-        if run.approved + run.answered + run.refused.count > 0 {
-            menu.addItem(disabled(isOn ? "Tonight so far" : "Last time"))
-            menu.addItem(disabled("\(run.approved) approved · \(run.answered) answered for you"))
+        let dot = NSView()
+        dot.wantsLayer = true
+        dot.layer!.backgroundColor = (isOn ? NSColor.systemIndigo : NSColor.tertiaryLabelColor).cgColor
+        dot.layer!.cornerRadius = 4
+        dot.widthAnchor.constraint(equalToConstant: 8).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        let head = NSStackView(views: [dot, label(isOn ? "AWAY IS ON" : "AWAY IS OFF", 11, .semibold, .secondaryLabelColor)])
+        head.spacing = 6
+        stack.addArrangedSubview(head)
+        gap(4)
+        let busy = run.approved + run.answered + run.refused.count > 0
+        stack.addArrangedSubview(label(isOn ? "Claude is working for you" : busy ? "Last time you were away" : "Claude waits for you",
+                                       20, .bold))
+        if isOn { stack.addArrangedSubview(label(since, 12, .regular, .secondaryLabelColor)) }
+        gap(10)
+        if busy {
+            stack.addArrangedSubview(label("\(run.approved) approved · \(run.answered) answered for you", 13))
+        } else if !isOn {
+            stack.addArrangedSubview(label("Turn it on before you sleep or step out. Normal work goes ahead; anything risky waits for you.",
+                                           12, .regular, .secondaryLabelColor))
         }
-        let needs = NSMenuItem(title: "Needs you (\(run.refused.count))", action: nil, keyEquivalent: "")
         if !run.refused.isEmpty {
-            let sub = NSMenu()
-            run.refused.forEach { sub.addItem(disabled($0)) }
-            needs.submenu = sub
-        } else { needs.isEnabled = false }
-        menu.addItem(needs)
-        menu.addItem(action("Open full report", #selector(openReport)))
-        menu.addItem(.separator())
-
-        let login = action("Open at login", #selector(toggleLogin))
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+            gap(10)
+            stack.addArrangedSubview(label("Needs you (\(run.refused.count))", 13, .semibold, .systemOrange))
+            for r in run.refused.prefix(5) {
+                let one = NSTextField(labelWithString: "• \(r)")  // one line each, so the list scans
+                one.font = .systemFont(ofSize: 12)
+                one.textColor = .secondaryLabelColor
+                one.lineBreakMode = .byTruncatingTail
+                one.toolTip = r
+                one.widthAnchor.constraint(equalToConstant: cardWidth - 2 * pad).isActive = true
+                stack.addArrangedSubview(one)
+            }
+            if run.refused.count > 5 {
+                stack.addArrangedSubview(label("+ \(run.refused.count - 5) more in the full report", 12, .regular, .tertiaryLabelColor))
+            }
+        }
+        gap(12)
+        let line = NSBox()
+        line.boxType = .separator
+        line.widthAnchor.constraint(equalToConstant: w).isActive = true
+        stack.addArrangedSubview(line)
+        gap(6)
+        let rows = NSStackView(views: [
+            RowButton(isOn ? "Turn off (I'm in)" : "Turn on for all chats", symbol: isOn ? "sun.max" : "moon.fill",
+                      bold: true) { [weak self] in self?.toggle() },
+            RowButton("Open full report", symbol: "doc.text") { [weak self] in self?.openReport() },
+            RowButton(SMAppService.mainApp.status == .enabled ? "Opens at login  ✓" : "Open at login",
+                      symbol: "power") { [weak self] in self?.toggleLogin() },
+            RowButton("Quit Away", symbol: "xmark.circle") { NSApp.terminate(nil) },
+        ])
+        rows.orientation = .vertical
+        rows.alignment = .leading
+        rows.spacing = 0
+        stack.addArrangedSubview(rows)
+        gap(8)
+        let credit = NSButton(title: "Made with ♥ by Purvang Mehta", target: self, action: #selector(openSite))
+        credit.isBordered = false
+        credit.font = .systemFont(ofSize: 11, weight: .medium)
+        credit.contentTintColor = .secondaryLabelColor
+        credit.toolTip = "thepurvangmehta.com"
+        stack.addArrangedSubview(credit)
+        stack.widthAnchor.constraint(equalToConstant: cardWidth).isActive = true
+        stack.layoutSubtreeIfNeeded()
+        stack.frame = NSRect(x: 0, y: 0, width: cardWidth, height: stack.fittingSize.height)
+        return stack
     }
 
-    func disabled(_ title: String) -> NSMenuItem {
-        let i = NSMenuItem(title: title, action: nil, keyEquivalent: ""); i.isEnabled = false; return i
-    }
-    func action(_ title: String, _ sel: Selector) -> NSMenuItem {
-        let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; return i
+    @objc func togglePopover() {
+        if popover.isShown { popover.performClose(nil); return }
+        guard let button = item.button else { return }
+        seenRefusals = lastRun().refused.count  // opening the card clears the badge
+        refresh()
+        let vc = NSViewController()
+        vc.view = card()
+        popover.contentViewController = vc
+        popover.contentSize = vc.view.frame.size
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
-    @objc func toggle() {
+    func toggle() {
+        popover.performClose(nil)
         guard let script = scriptPath() else {
             let alert = NSAlert()
             alert.messageText = "Install the Away plugin first"
@@ -127,14 +245,21 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
-    @objc func openReport() {
+    func openReport() {
+        popover.performClose(nil)
         if !FileManager.default.fileExists(atPath: logPath) { FileManager.default.createFile(atPath: logPath, contents: nil) }
         NSWorkspace.shared.open(URL(fileURLWithPath: logPath))
     }
 
-    @objc func toggleLogin() {
+    @objc func openSite() {
+        popover.performClose(nil)
+        NSWorkspace.shared.open(URL(string: "https://thepurvangmehta.com/?utm_source=away&utm_medium=app")!)
+    }
+
+    func toggleLogin() {
         let s = SMAppService.mainApp
         try? (s.status == .enabled ? s.unregister() : s.register())
+        popover.performClose(nil)
     }
 }
 

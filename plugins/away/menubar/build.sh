@@ -21,7 +21,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 codesign --force --sign - "$APP"   # ad-hoc: fine for your own Mac; public downloads need a Developer ID
 mkdir -p ~/Applications
-pkill -x Away 2>/dev/null || true
+pkill -x Away 2>/dev/null && sleep 1 || true
 ditto "$APP" ~/Applications/Away.app
 open ~/Applications/Away.app
 echo "Away is in your menu bar (the moon)."
